@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Segments are separated by a plain two-space gap instead of a dimmed `│`: each segment
+  already opens with its own emoji, and the line gains a column per segment before it has
+  to shorten anything.
+
 ## [1.0.0] - 2026-09-23
 
 First public release.

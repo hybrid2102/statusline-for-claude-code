@@ -291,13 +291,17 @@ function segAccount(profile, email) {
 
 // ---- layout -------------------------------------------------------------------------------
 
+// Every segment opens with its own emoji, which already marks where it starts: a plain gap
+// is enough between segments and leaves " · " as the only mark, used inside a segment.
+const GAP = '  ';
+
 // When the line does not fit, give things up in order of importance. Shortening a segment
 // costs less than dropping it, so its short form comes 30 points earlier: "Opus · high"
 // becomes "Opus" before the branch disappears, and the budget is the last to go.
 export function fit(segs, maxWidth) {
   const live = segs.map(s => ({ ...s }));
   const current = s => (s.useShort ? s.short : s.text);
-  const width = () => live.reduce((w, s) => w + visibleWidth(current(s)), 0) + 3 * (live.length - 1);
+  const width = () => live.reduce((w, s) => w + visibleWidth(current(s)), 0) + GAP.length * (live.length - 1);
   const steps = live
     .flatMap(s => [
       s.short && { at: s.prio - 30, apply: () => (s.useShort = true) },
@@ -335,7 +339,7 @@ export function render(data, env = {}) {
   ].filter(Boolean);
 
   // 6 columns of margin for the padding Claude Code puts around the status line
-  return fit(segs, columns - 6).join(dim(' │ '));
+  return fit(segs, columns - 6).join(GAP);
 }
 
 // ---- entry point --------------------------------------------------------------------------
@@ -376,7 +380,7 @@ if (isMain()) {
     } catch (err) {
       // a bug must not make the status line vanish: show the bare minimum and the error
       const dir = path.basename(data.workspace?.current_dir || data.cwd || '');
-      console.log(`📁 ${dir} ${dim('│')} 🤖 ${data.model?.display_name || '?'} ${dim(`│ ⚠ statusline: ${err.message}`)}`);
+      console.log(`📁 ${dir}${GAP}🤖 ${data.model?.display_name || '?'}${GAP}${dim(`⚠ statusline: ${err.message}`)}`);
     }
   });
 }
