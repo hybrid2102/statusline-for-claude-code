@@ -1,0 +1,10 @@
+* text=auto eol=lf
+
+# Windows scripts must keep CRLF endings when checked out: cmd.exe misreads labels and
+# goto targets in a .bat file with bare LF endings.
+*.ps1 text eol=crlf
+*.psd1 text eol=crlf
+*.bat text eol=crlf
+
+*.svg text eol=lf
+*.png binary

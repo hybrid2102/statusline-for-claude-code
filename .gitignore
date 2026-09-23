@@ -1,0 +1,15 @@
+# Build output of the release workflow
+dist/
+
+# Test results
+testresults.xml
+
+# Node
+node_modules/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
