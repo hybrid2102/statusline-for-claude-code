@@ -1,0 +1,58 @@
+name: Bug report
+description: The status line or the installer does not behave as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Most status line bugs come down to the exact input Claude Code
+        sends, which changes between releases, so the fields below ask for it.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect to see, and what did you see instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: input
+    attributes:
+      label: Input received by the status line
+      description: >
+        Create an empty file named statusline.debug in your Claude Code profile folder
+        (~/.claude), send one message, then paste the content of claude-statusline-input.json
+        from your temp folder. It contains paths and your session name - remove anything you
+        would rather not publish. Delete statusline.debug afterwards.
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: installer-output
+    attributes:
+      label: Installer output
+      description: If the problem is with the installer, paste everything it printed.
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Status line version
+      description: The "// version:" line at the top of statusline.mjs
+      placeholder: 1.0.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, terminal, Node.js version (node --version) and Claude Code version (claude --version).
+      placeholder: |
+        Windows 11, Windows Terminal, Node 24.1.0, Claude Code 2.1.280
+    validations:
+      required: true

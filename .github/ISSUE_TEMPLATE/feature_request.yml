@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest something the status line should show, or show differently
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every segment of this status line has to lead to a decision - that is why session
+        duration and lines changed are not shown. A proposal is much stronger when it says
+        what you would do differently after reading the new information.
+
+  - type: textarea
+    id: decision
+    attributes:
+      label: What decision would this help you make
+      description: The situation you are in, and what you would do differently if the line told you.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to see
+      description: Where in the line, in which conditions, and whether it should be coloured.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you use today instead
+    validations:
+      required: false

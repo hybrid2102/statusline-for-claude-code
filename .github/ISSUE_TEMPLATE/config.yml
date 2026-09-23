@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Claude Code itself
+    url: https://github.com/anthropics/claude-code/issues
+    about: Problems with Claude Code, or with the data it sends to status lines, belong upstream.
+  - name: Security vulnerability
+    url: https://github.com/hybrid2102/statusline-for-claude-code/security/advisories/new
+    about: Report privately rather than in a public issue. See SECURITY.md.

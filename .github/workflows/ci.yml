@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: Node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The status line itself is plain Node and runs wherever Claude Code does. 18 is the
+        # oldest release the installer accepts, so it is tested next to the current LTS.
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ['18', '24']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Run tests
+        run: npm test
+
+  versions:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Script, package.json and changelog agree
+        shell: pwsh
+        run: |
+          # The installer compares the "// version:" line of the script to decide whether it
+          # may overwrite an installed copy, so that line must never drift from the release
+          # version the rest of the project announces.
+          $script = (Select-String -Path ./statusline.mjs -Pattern '^// version: (\d+\.\d+\.\d+)$').Matches[0].Groups[1].Value
+          $package = (Get-Content ./package.json -Raw | ConvertFrom-Json).version
+          if (-not $script) { throw 'statusline.mjs has no "// version: X.Y.Z" line.' }
+          if ($script -ne $package) { throw "statusline.mjs says $script but package.json says $package." }
+          $changelog = Get-Content ./CHANGELOG.md -Raw
+          if ($changelog -notmatch "(?m)^##\s*\[$([regex]::Escape($script))\]") {
+            throw "CHANGELOG.md has no '## [$script]' section."
+          }
+          Write-Host "Version $script is consistent."
+
+  analyze:
+    name: PSScriptAnalyzer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -SkipPublisherCheck
+
+      - name: Analyze
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+          if ($results) {
+            $results | Format-Table -AutoSize | Out-String | Write-Host
+            throw "$(@($results).Count) analyzer finding(s)."
+          }
+          Write-Host 'No findings.'
+
+      - name: Scripts are ASCII-only
+        shell: pwsh
+        run: |
+          # Windows PowerShell 5.1 reads a .ps1 without a BOM in the system code page, so a
+          # single accented character in a string or comment is enough to break it.
+          $offending = Get-ChildItem -Path . -Include *.ps1, *.psd1, *.bat -Recurse |
+            Select-String -Pattern '[^\x00-\x7F]'
+          if ($offending) {
+            $offending | ForEach-Object { Write-Host "::error file=$($_.Path),line=$($_.LineNumber)::non-ASCII character" }
+            throw 'Non-ASCII characters found in Windows scripts.'
+          }
+
+  # The two editions are separate jobs rather than a matrix on purpose: the `shell:` key
+  # does not accept the matrix context, so the interpreter cannot be parameterised. Both are
+  # exercised because the installer must work on the Windows PowerShell 5.1 that ships with
+  # every Windows machine, not only on PowerShell 7.
+
+  pester-pwsh:
+    name: Installer tests (PowerShell 7)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser -SkipPublisherCheck
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          Import-Module Pester -MinimumVersion 5.5.0
+          $config = New-PesterConfiguration
+          $config.Run.Path = './tests'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = './testresults.xml'
+          Invoke-Pester -Configuration $config
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pester-results-pwsh
+          path: ./testresults.xml
+          if-no-files-found: ignore
+
+  pester-windows-powershell:
+    name: Installer tests (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Install Pester
+        shell: powershell
+        run: Install-Module Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser -SkipPublisherCheck
+
+      - name: Run tests
+        shell: powershell
+        run: |
+          Import-Module Pester -MinimumVersion 5.5.0
+          $config = New-PesterConfiguration
+          $config.Run.Path = './tests'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = './testresults.xml'
+          Invoke-Pester -Configuration $config
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pester-results-windows-powershell
+          path: ./testresults.xml
+          if-no-files-found: ignore
