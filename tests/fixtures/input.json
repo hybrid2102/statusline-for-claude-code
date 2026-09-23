@@ -1,0 +1,67 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000000",
+  "transcript_path": "/home/dev/.claude/projects/-home-dev-acme-web/00000000-0000-4000-8000-000000000000.jsonl",
+  "cwd": "/home/dev/acme-web",
+  "prompt_id": "00000000-0000-4000-8000-000000000001",
+  "effort": {
+    "level": "high"
+  },
+  "session_name": "refactor billing",
+  "model": {
+    "id": "claude-opus-5-5",
+    "display_name": "Opus 5.5"
+  },
+  "workspace": {
+    "current_dir": "/home/dev/acme-web",
+    "project_dir": "/home/dev/acme-web",
+    "added_dirs": []
+  },
+  "version": "2.1.280",
+  "output_style": {
+    "name": "default"
+  },
+  "cost": {
+    "total_cost_usd": 0.2875,
+    "total_duration_ms": 173708,
+    "total_api_duration_ms": 44001,
+    "total_lines_added": 0,
+    "total_lines_removed": 0
+  },
+  "context_window": {
+    "total_input_tokens": 111000,
+    "total_output_tokens": 16,
+    "context_window_size": 1000000,
+    "current_usage": {
+      "input_tokens": 2,
+      "output_tokens": 16,
+      "cache_creation_input_tokens": 4435,
+      "cache_read_input_tokens": 106563
+    },
+    "used_percentage": 11,
+    "remaining_percentage": 89
+  },
+  "exceeds_200k_tokens": false,
+  "prompt_cache": {
+    "warm": true,
+    "caching_observed": true,
+    "ttl": "1h",
+    "requests": 5,
+    "misses": 0,
+    "hit_ratio": 0.92,
+    "recache_tokens_if_cold": 111000
+  },
+  "fast_mode": false,
+  "thinking": {
+    "enabled": true
+  },
+  "rate_limits": {
+    "five_hour": {
+      "used_percentage": 20,
+      "resets_at": 1790000000
+    },
+    "seven_day": {
+      "used_percentage": 25,
+      "resets_at": 1790300000
+    }
+  }
+}

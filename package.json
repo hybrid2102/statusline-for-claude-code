@@ -1,0 +1,20 @@
+{
+  "name": "statusline-for-claude-code",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A Claude Code status line that tells you at a glance whether you can push harder or should slow down.",
+  "type": "module",
+  "license": "MIT",
+  "author": "hybrid2102",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hybrid2102/statusline-for-claude-code.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test",
+    "preview": "node docs/preview.mjs"
+  }
+}
