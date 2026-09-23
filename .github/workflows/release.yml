@@ -97,7 +97,9 @@ jobs:
             $hash = Get-FileHash -LiteralPath $file -Algorithm SHA256
             '{0}  {1}' -f $hash.Hash.ToLowerInvariant(), (Split-Path $file -Leaf)
           }
-          $lines | Set-Content ./dist/SHA256SUMS.txt -Encoding ascii
+          # LF endings, not the CRLF Set-Content writes on Windows: sha256sum -c on macOS and
+          # Linux would otherwise look for a file named "statusline.mjs\r" and verify nothing.
+          [IO.File]::WriteAllText((Join-Path $PWD 'dist/SHA256SUMS.txt'), (($lines -join "`n") + "`n"))
           Get-Content ./dist/SHA256SUMS.txt | Write-Host
 
       - name: Verify the package installs and runs
