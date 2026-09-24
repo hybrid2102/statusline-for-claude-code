@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// version: 1.1.0
+// version: 1.1.1
 //
 // A status line for Claude Code that answers four questions at a glance:
 //

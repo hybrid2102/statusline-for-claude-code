@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-09-24
+
+### Fixed
+
+- The time to reset of each budget window is shown in parentheses, `5h 20%→40% (2h30m)`,
+  instead of after a `↺` symbol: several terminal fonts draw the symbol wider than its
+  column, so it overlapped the digits that followed.
+
 ## [1.1.0] - 2026-09-23
 
 ### Changed
@@ -41,6 +49,7 @@ First public release.
 - **`claude-profile.bat`** to start Claude Code on an alternative profile, with a
   confirmation before a mistyped name creates an empty one.
 
-[Unreleased]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/hybrid2102/statusline-for-claude-code/releases/tag/v1.0.0
