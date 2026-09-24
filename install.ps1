@@ -245,6 +245,23 @@ console.log(current ? `replaced|${backup}|${current.command || ''}` : `added|${b
 # with: "~" is expanded by bash, but not by cmd.exe nor by every PowerShell version.
 $command = 'node "' + ((Resolve-Path -LiteralPath $target).Path -replace '\\', '/') + '"'
 
+# The /statusline-update command, as a skill in each profile. The !`...` line runs before
+# Claude sees the prompt, so the update itself involves no model decision: Claude only
+# reports the result. allowed-tools pre-approves exactly that command, for whichever shell
+# Claude Code uses; disable-model-invocation keeps Claude from starting it on its own.
+$updateCommand = "$command --update"
+$skill = @"
+---
+description: Update the Claude Code status line to its latest release
+disable-model-invocation: true
+allowed-tools: Bash($updateCommand) PowerShell($updateCommand)
+---
+
+!``$updateCommand``
+
+Above is the report of the status line's self-update. Tell the user in one or two sentences whether it was updated, and from which version to which. If it lists changes, summarize them in a few bullet points. Run no other command.
+"@ -replace "`r`n", "`n"
+
 $failures = 0
 foreach ($profileDir in $targets) {
     Write-Line
@@ -275,6 +292,18 @@ foreach ($profileDir in $targets) {
             if ($parts[1]) { Write-Line "    backup: $(Split-Path $parts[1] -Leaf)" 'DarkGray' }
             Write-Line '    configured' 'Green'
         }
+    }
+
+    $skillDir = Join-Path (Join-Path $profileDir 'skills') 'statusline-update'
+    $skillFile = Join-Path $skillDir 'SKILL.md'
+    if ((Test-Path -LiteralPath $skillFile) -and [System.IO.File]::ReadAllText($skillFile) -eq $skill) {
+        Write-Line '    /statusline-update already in place' 'DarkGray'
+    } else {
+        if (-not (Test-Path -LiteralPath $skillDir)) {
+            New-Item -ItemType Directory -Path $skillDir -Force | Out-Null
+        }
+        [System.IO.File]::WriteAllText($skillFile, $skill, $utf8NoBom)
+        Write-Line '    /statusline-update command installed' 'Green'
     }
 }
 

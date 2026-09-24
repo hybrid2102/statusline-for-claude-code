@@ -1,18 +1,26 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
   assessWindows,
+  changesSince,
+  checkForUpdate,
   fit,
   formatDuration,
   formatTokens,
+  isNewer,
   parseGitStatus,
+  parseVersion,
   profileDir,
   render,
+  selfUpdate,
+  updateAvailable,
   visibleWidth,
 } from '../statusline.mjs';
 
@@ -31,7 +39,7 @@ const NOW = 1790000000 * 1000 - 2.5 * HOUR;
 
 const cleanRepo = { branch: 'main', ahead: 0, behind: 0, gone: false, changes: 0, conflicts: 0, op: '' };
 const renderWith = (data, env = {}) =>
-  render(data, { now: NOW, columns: 0, git: () => cleanRepo, account: () => 'dev@example.com', ...env });
+  render(data, { now: NOW, columns: 0, git: () => cleanRepo, account: () => 'dev@example.com', update: () => null, ...env });
 
 describe('formatTokens', () => {
   it('uses k and M with sensible rounding', () => {
@@ -239,6 +247,12 @@ describe('render', () => {
     assert.match(line, /📁 acme-web/);
   });
 
+  it('advertises a newer release, and gives it up first when the terminal is narrow', () => {
+    const update = () => '9.9.9';
+    assert.match(plain(renderWith(fixture(), { update })), /👤 dev  🆕 v9\.9\.9 \/statusline-update$/);
+    assert.doesNotMatch(plain(renderWith(fixture(), { update, columns: 120 })), /statusline-update/);
+  });
+
   it('survives a nearly empty input', () => {
     // with no transcript path the profile comes from CLAUDE_CONFIG_DIR, which would name
     // whatever profile the tests happen to run under
@@ -253,7 +267,9 @@ describe('render', () => {
 });
 
 describe('command line', () => {
-  const run = input => spawnSync(process.execPath, [script], { input, encoding: 'utf8', env: { ...process.env, COLUMNS: '' } });
+  // no update check: it would reach GitHub and leave a cache file in the repository
+  const env = { ...process.env, COLUMNS: '', STATUSLINE_NO_UPDATE_CHECK: '1' };
+  const run = input => spawnSync(process.execPath, [script], { input, encoding: 'utf8', env });
 
   it('prints one line for a real input', () => {
     const r = run(fs.readFileSync(path.join(here, 'fixtures', 'input.json')));
@@ -273,6 +289,11 @@ describe('command line', () => {
     assert.equal(r.stdout, '');
   });
 
+  it('prints its version', () => {
+    const r = spawnSync(process.execPath, [script, '--version'], { encoding: 'utf8', env });
+    assert.equal(r.stdout.trim(), parseVersion(fs.readFileSync(script, 'utf8')));
+  });
+
   it('does nothing when imported rather than run', () => {
     const r = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(new URL('../statusline.mjs', import.meta.url).href)})`], {
       input: '{}',
@@ -280,5 +301,124 @@ describe('command line', () => {
     });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
+  });
+});
+
+describe('updates', () => {
+  const source = fs.readFileSync(script, 'utf8');
+  const versioned = v => source.replace(/^\/\/ version: .*$/m, `// version: ${v}`);
+  const sha = text => crypto.createHash('sha256').update(text).digest('hex');
+
+  // a folder of its own holding an installed script of the given version
+  const dirs = [];
+  after(() => dirs.forEach(d => fs.rmSync(d, { recursive: true, force: true })));
+  const install = version => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'statusline-test-'));
+    dirs.push(dir);
+    const file = path.join(dir, 'statusline.mjs');
+    fs.writeFileSync(file, versioned(version));
+    return { dir, file };
+  };
+
+  // GitHub as seen through fetch: `files` maps the end of a URL to its body
+  const github = files => async url => {
+    const key = Object.keys(files).find(k => url.endsWith(k));
+    return key === undefined
+      ? { ok: false, status: 404 }
+      : { ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode(files[key]).buffer };
+  };
+  const release = (version, body = versioned(version), sums = `${sha(body)}  statusline.mjs\n`) =>
+    github({
+      '/releases/latest': JSON.stringify({ tag_name: `v${version}` }),
+      [`v${version}/statusline.mjs`]: body,
+      [`v${version}/SHA256SUMS.txt`]: sums,
+      [`v${version}/CHANGELOG.md`]: '# Changelog\n\n## [Unreleased]\n\n## [9.0.0] - x\n\n- new\n\n## [1.0.0] - x\n\n- old\n',
+    });
+  const noTest = () => {};
+
+  it('compares versions numerically', () => {
+    assert.equal(isNewer('1.10.0', '1.9.9'), true);
+    assert.equal(isNewer('1.2.0', '1.2.0'), false);
+    assert.equal(isNewer('0.9.0', '1.0.0'), false);
+  });
+
+  it('extracts the changelog of the releases after a version', () => {
+    const log = '# Changelog\n\n## [Unreleased]\n\n## [1.2.0] - x\n\n- b\n\n## [1.1.0] - x\n\n- a\n';
+    assert.equal(changesSince(log, '1.1.0'), '## [1.2.0] - x\n\n- b');
+  });
+
+  it('replaces the script with a verified newer release and keeps a backup', async () => {
+    const { dir, file } = install('1.0.0');
+    const report = await selfUpdate({ get: release('9.0.0'), file, test: noTest });
+    assert.equal(parseVersion(fs.readFileSync(file, 'utf8')), '9.0.0');
+    assert.equal(parseVersion(fs.readFileSync(`${file}.bak-1.0.0`, 'utf8')), '1.0.0');
+    assert.match(report, /from 1\.0\.0 to 9\.0\.0/);
+    assert.match(report, /## \[9\.0\.0\]/);
+    assert.doesNotMatch(report, /## \[1\.0\.0\]/);
+    assert.ok(!fs.existsSync(path.join(dir, 'statusline.new.mjs')));
+  });
+
+  it('runs the new version before installing it', async () => {
+    const { file } = install('1.0.0');
+    await selfUpdate({ get: release('9.0.0'), file });
+    assert.equal(parseVersion(fs.readFileSync(file, 'utf8')), '9.0.0');
+
+    const { dir, file: other } = install('1.0.0');
+    const broken = versioned('9.1.0') + '\nsyntax error(';
+    await assert.rejects(selfUpdate({ get: release('9.1.0', broken), file: other }), /does not run/);
+    assert.equal(fs.readFileSync(other, 'utf8'), versioned('1.0.0'));
+    assert.ok(!fs.existsSync(path.join(dir, 'statusline.new.mjs')));
+  });
+
+  it('refuses a download that does not match its checksum or its tag', async () => {
+    const { file } = install('1.0.0');
+    const tampered = release('9.0.0', versioned('9.0.0'), `${'0'.repeat(64)}  statusline.mjs\n`);
+    await assert.rejects(selfUpdate({ get: tampered, file, test: noTest }), /SHA256SUMS/);
+    await assert.rejects(selfUpdate({ get: release('9.0.0', versioned('8.0.0')), file, test: noTest }), /does not say version 9\.0\.0/);
+    assert.equal(fs.readFileSync(file, 'utf8'), versioned('1.0.0'));
+  });
+
+  it('leaves an up-to-date or newer script alone', async () => {
+    const { file } = install('9.0.0');
+    assert.match(await selfUpdate({ get: release('9.0.0'), file, test: noTest }), /up to date/);
+    const { file: dev } = install('10.0.0');
+    assert.match(await selfUpdate({ get: release('9.0.0'), file: dev, test: noTest }), /newer than the latest release/);
+    assert.equal(fs.readFileSync(dev, 'utf8'), versioned('10.0.0'));
+  });
+
+  it('checks at most once a day, in the background, and reports what the last check found', async () => {
+    const { file } = install('1.0.0');
+    let started = 0;
+    const start = () => started++;
+    assert.equal(updateAvailable(NOW, { file, start }), null);
+    assert.equal(updateAvailable(NOW + HOUR, { file, start }), null);
+    assert.equal(started, 1, 'a check is already under way');
+
+    await checkForUpdate({ get: release('9.0.0'), file, now: NOW + HOUR });
+    assert.equal(updateAvailable(NOW + 2 * HOUR, { file, start }), '9.0.0');
+    assert.equal(started, 1);
+    updateAvailable(NOW + 2 * DAY, { file, start });
+    assert.equal(started, 2);
+  });
+
+  it('can be turned off', () => {
+    const { file } = install('1.0.0');
+    let started = 0;
+    process.env.STATUSLINE_NO_UPDATE_CHECK = '1';
+    try {
+      assert.equal(updateAvailable(NOW, { file, start: () => started++ }), null);
+    } finally {
+      delete process.env.STATUSLINE_NO_UPDATE_CHECK;
+    }
+    assert.equal(started, 0);
+  });
+
+  it('exits 0 from a failed --update, so the command can report the failure', () => {
+    const { file } = install('1.0.0');
+    // an invalid URL makes fetch fail at once, without touching the network
+    fs.writeFileSync(file, versioned('1.0.0').replace('https://api.github.com', 'http://['));
+    const r = spawnSync(process.execPath, [file, '--update'], { encoding: 'utf8' });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /was not updated/);
   });
 });

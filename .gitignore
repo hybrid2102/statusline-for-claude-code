@@ -13,3 +13,6 @@ node_modules/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Result of the daily update check, written next to the script
+statusline-update.json

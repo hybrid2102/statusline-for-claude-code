@@ -8,6 +8,9 @@ BeforeAll {
     $script:Installer = Join-Path (Split-Path $PSScriptRoot -Parent) 'install.ps1'
     $script:Source = Join-Path (Split-Path $PSScriptRoot -Parent) 'statusline.mjs'
     $script:Shell = (Get-Process -Id $PID).Path
+    # the installer's test run would otherwise start a check against GitHub, which could
+    # still be writing into TestDrive when Pester removes it
+    $env:STATUSLINE_NO_UPDATE_CHECK = '1'
 
     function Invoke-Installer([string]$ScriptDir, [string]$ConfigDir, [switch]$Force) {
         $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-NonInteractive', '-File', $script:Installer,
@@ -51,6 +54,19 @@ Describe 'install.ps1' {
             $expected = 'node "' + ((Resolve-Path $installed).Path -replace '\\', '/') + '"'
             $settings.statusLine.command | Should -Be $expected
             Get-Backup $configDir | Should -HaveCount 0
+        }
+
+        It 'installs the /statusline-update command, pre-approved for that command only' {
+            $run = Invoke-Installer $scriptDir $configDir
+            $run.ExitCode | Should -Be 0 -Because $run.Output
+            $run.Output | Should -Match '/statusline-update command installed'
+
+            $skill = Get-Content -Raw -LiteralPath (Join-Path $configDir 'skills\statusline-update\SKILL.md')
+            $update = 'node "' + ((Resolve-Path $installed).Path -replace '\\', '/') + '" --update'
+            $skill | Should -Match ([regex]::Escape("allowed-tools: Bash($update) PowerShell($update)"))
+            $skill | Should -Match ([regex]::Escape("!``$update``"))
+            $skill | Should -Match 'disable-model-invocation: true'
+            $skill | Should -Not -Match "`r"
         }
 
         It 'finishes with a successful test run' {
@@ -98,6 +114,7 @@ Describe 'install.ps1' {
             $run.ExitCode | Should -Be 0
             $run.Output | Should -Match 'already configured'
             $run.Output | Should -Match 'already up to date'
+            $run.Output | Should -Match '/statusline-update already in place'
             Get-Content -Raw -LiteralPath $settingsFile | Should -Be $before
             Get-Backup $configDir | Should -HaveCount 0
         }

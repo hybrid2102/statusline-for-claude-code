@@ -86,6 +86,8 @@ blocks you: conflicts (`!2`), an operation left half-way (`REBASE`, `MERGE`, `PI
 - **👤 account**: the part of your e-mail before the `@`, plus the profile folder when it is
   not the standard `.claude`. With several profiles open in different windows, this is how
   you tell whose budget you are spending.
+- **🆕 v1.3.0 /statusline-update**, at the end of the line, when a newer release is out.
+  Run `/statusline-update` in Claude Code to install it (see [Updating](#updating)).
 
 ### Narrow terminals
 
@@ -112,6 +114,7 @@ The installer:
 - if several Claude Code profiles exist, asks which ones to configure;
 - **never silently replaces a newer or hand-edited script** with an older package, so
   carrying an old copy of the zip to another machine does no harm;
+- adds the `/statusline-update` command to each profile it configures;
 - finishes with a test run on sample data, so you see the line before restarting.
 
 Running it again is safe: it notices that everything is in place and changes nothing.
@@ -148,6 +151,21 @@ Then add this to `~/.claude/settings.json`:
 }
 ```
 
+For the `/statusline-update` command, save this as
+`~/.claude/skills/statusline-update/SKILL.md`:
+
+```markdown
+---
+description: Update the Claude Code status line to its latest release
+disable-model-invocation: true
+allowed-tools: Bash(node ~/.claude/statusline.mjs --update)
+---
+
+!`node ~/.claude/statusline.mjs --update`
+
+Above is the report of the status line's self-update. Tell the user in one or two sentences whether it was updated, and from which version to which. If it lists changes, summarize them in a few bullet points. Run no other command.
+```
+
 ### Several profiles
 
 If you use separate Claude Code profiles (for example `~/.claude` for personal use and
@@ -168,8 +186,25 @@ one.
 
 ## Updating
 
-Download the new release and run `install.bat` again. On macOS and Linux, repeat the
-`curl` command. Each release is listed in the [changelog](CHANGELOG.md).
+When a new release is out, the line ends with `🆕 v1.3.0 /statusline-update`. Type
+**`/statusline-update`** in Claude Code: the script downloads the release and checks it
+against the release's `SHA256SUMS.txt` and its own version line. It then runs the new
+version once on sample data, keeps the old one as `statusline.mjs.bak-<version>`, and
+swaps it in. Claude tells you what changed. The new version shows from the next refresh,
+with no restart.
+
+The same works from any terminal:
+
+```sh
+node ~/.claude/statusline.mjs --update
+```
+
+The check for new releases runs at most **once a day**, in a background process, so the
+line never waits for the network. To turn it off, set `STATUSLINE_NO_UPDATE_CHECK=1`, for
+example in the `env` section of `settings.json`; `/statusline-update` keeps working.
+
+Running `install.bat` from a newer release still works as well. Each release is listed in
+the [changelog](CHANGELOG.md).
 
 ## Troubleshooting
 
@@ -191,9 +226,12 @@ and model rather than disappearing. Please report the message.
 
 ## Privacy
 
-The status line makes no network requests. It reads the input Claude Code sends, the
-`oauthAccount.emailAddress` field of `.claude.json` and the output of `git status`, and
-writes nothing unless you enable debug mode. [SECURITY.md](SECURITY.md) has the details.
+The status line reads the input Claude Code sends, the `oauthAccount.emailAddress` field
+of `.claude.json` and the output of `git status`. Its only network request is the daily
+check for a new release, which asks the GitHub API for the latest release of this project
+and sends nothing about you or your sessions; it can be turned off. It writes only the
+result of that check, next to the script, and a copy of its input if you enable debug
+mode. [SECURITY.md](SECURITY.md) has the details.
 
 ## Contributing
 

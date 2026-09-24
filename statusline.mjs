@@ -15,7 +15,8 @@
 // Claude Code pipes a JSON document on stdin and shows the first line printed on stdout.
 // https://code.claude.com/docs/en/statusline
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -289,6 +290,170 @@ function segAccount(profile, email) {
   return { prio: 40, text: `👤 ${dim(id)}`, short: standard ? undefined : `👤 ${dim(name)}` };
 }
 
+// A newer release, with the command that installs it. The most dispensable segment: it
+// shortens first and goes before anything else does.
+function segUpdate(latest) {
+  if (!latest) return;
+  return { prio: 30, text: `🆕 ${dim(`v${latest} /statusline-update`)}`, short: `🆕 ${dim(`v${latest}`)}` };
+}
+
+// ---- updates ------------------------------------------------------------------------------
+
+const REPO = 'hybrid2102/statusline-for-claude-code';
+const SELF = fileURLToPath(import.meta.url);
+const CHECK_EVERY_MS = 24 * 3600e3;
+const NO_CHECK_ENV = 'STATUSLINE_NO_UPDATE_CHECK';
+
+export const parseVersion = text => text.match(/^\/\/ version: (\d+\.\d+\.\d+)$/m)?.[1] ?? null;
+
+export const isNewer = (a, b) => {
+  const [x, y] = [a, b].map(v => v.split('.').map(Number));
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
+  return false;
+};
+
+// The changelog sections of the releases after `current`, newest first, so that an update
+// can say what it brings.
+export function changesSince(changelog, current) {
+  return changelog
+    .split(/^(?=## \[)/m)
+    .filter(s => {
+      const v = s.match(/^## \[(\d+\.\d+\.\d+)\]/)?.[1];
+      return v && (!current || isNewer(v, current));
+    })
+    .map(s => s.trim())
+    .join('\n\n');
+}
+
+// The result of the last check lives next to the script, so every profile shares it.
+const cacheFile = file => path.join(path.dirname(file), 'statusline-update.json');
+const readCache = file => {
+  try {
+    return JSON.parse(fs.readFileSync(cacheFile(file), 'utf8'));
+  } catch {
+    return {};
+  }
+};
+const writeCache = (file, cache) => fs.writeFileSync(cacheFile(file), JSON.stringify(cache) + '\n');
+
+// The version a render should advertise, or null. The status line must never wait for the
+// network, so at most once a day it starts a detached `--check-update` and shows what the
+// previous check found. checkedAt is written before the check starts: renders arrive
+// every few hundred milliseconds, and each would otherwise start its own.
+export function updateAvailable(now, { file = SELF, start = startCheck } = {}) {
+  if (process.env[NO_CHECK_ENV]) return null;
+  const cache = readCache(file);
+  if (!(cache.checkedAt <= now && now - cache.checkedAt < CHECK_EVERY_MS)) {
+    try {
+      writeCache(file, { ...cache, checkedAt: now });
+      start(file);
+    } catch {}
+  }
+  if (!cache.latest) return null;
+  let current;
+  try {
+    current = parseVersion(fs.readFileSync(file, 'utf8'));
+  } catch {}
+  return current && isNewer(cache.latest, current) ? cache.latest : null;
+}
+
+function startCheck(file) {
+  spawn(process.execPath, [file, '--check-update'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+}
+
+async function download(get, url, what) {
+  const res = await get(url, {
+    headers: { 'User-Agent': 'statusline-for-claude-code', Accept: 'application/vnd.github+json' },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`could not download ${what} (HTTP ${res.status})`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+async function latestRelease(get) {
+  const json = JSON.parse(await download(get, `https://api.github.com/repos/${REPO}/releases/latest`, 'the release list'));
+  const version = String(json.tag_name || '').match(/^v(\d+\.\d+\.\d+)$/)?.[1];
+  if (!version) throw new Error(`unexpected latest release "${json.tag_name}"`);
+  return { tag: json.tag_name, version };
+}
+
+export async function checkForUpdate({ get = fetch, file = SELF, now = Date.now() } = {}) {
+  const { version } = await latestRelease(get);
+  writeCache(file, { checkedAt: now, latest: version });
+  return version;
+}
+
+// A script that does not run must never replace one that does: the candidate renders a
+// sample input before it goes in.
+function smokeTest(candidate) {
+  const r = spawnSync(process.execPath, [candidate], {
+    input: '{"model":{"display_name":"update-check"}}',
+    encoding: 'utf8',
+    env: { ...process.env, [NO_CHECK_ENV]: '1' },
+    timeout: 10000,
+    windowsHide: true,
+  });
+  if (!r.stdout?.includes('update-check')) throw new Error(`the new version does not run: ${(r.stderr || '').trim() || 'no output'}`);
+}
+
+// Replaces this script with the latest release, after checking it against the release's
+// SHA256SUMS.txt, its own version line and a test run. Returns a report for the user.
+export async function selfUpdate({ get = fetch, file = SELF, test = smokeTest, now = Date.now() } = {}) {
+  const current = parseVersion(fs.readFileSync(file, 'utf8'));
+  const release = await latestRelease(get);
+  writeCache(file, { checkedAt: now, latest: release.version });
+  if (current && !isNewer(release.version, current)) {
+    return current === release.version
+      ? `The status line is up to date (version ${current}).`
+      : `The installed status line (${current}) is newer than the latest release (${release.version}); left unchanged.`;
+  }
+
+  const base = `https://github.com/${REPO}/releases/download/${release.tag}/`;
+  const [script, sums] = await Promise.all([
+    download(get, base + 'statusline.mjs', 'statusline.mjs'),
+    download(get, base + 'SHA256SUMS.txt', 'SHA256SUMS.txt'),
+  ]);
+  const expected = sums.toString('utf8').match(/^([0-9a-f]{64}) +statusline\.mjs$/m)?.[1];
+  if (!expected) throw new Error('SHA256SUMS.txt has no line for statusline.mjs');
+  if (crypto.createHash('sha256').update(script).digest('hex') !== expected) {
+    throw new Error('the download does not match SHA256SUMS.txt');
+  }
+  if (parseVersion(script.toString('utf8')) !== release.version) {
+    throw new Error(`the downloaded script does not say version ${release.version}`);
+  }
+
+  // .mjs, or node would read the candidate as CommonJS and reject its imports
+  const candidate = path.join(path.dirname(file), 'statusline.new.mjs');
+  fs.writeFileSync(candidate, script);
+  try {
+    test(candidate);
+    const backup = `${file}.bak-${current || 'unversioned'}`;
+    fs.copyFileSync(file, backup);
+    // On Windows a render reading the file at that instant makes the rename fail
+    for (let attempt = 1; ; attempt++) {
+      try {
+        fs.renameSync(candidate, file);
+        break;
+      } catch (err) {
+        if (attempt === 5) throw err;
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+    let changes = '';
+    try {
+      const log = await download(get, `https://raw.githubusercontent.com/${REPO}/${release.tag}/CHANGELOG.md`, 'the changelog');
+      changes = changesSince(log.toString('utf8'), current);
+    } catch {}
+    return [
+      `Updated the status line from ${current || 'an unversioned copy'} to ${release.version}. ` +
+        `The previous version is saved as ${path.basename(backup)}; the new one shows from the next refresh.`,
+      changes || `What changed: https://github.com/${REPO}/blob/main/CHANGELOG.md`,
+    ].join('\n\n');
+  } finally {
+    fs.rmSync(candidate, { force: true });
+  }
+}
+
 // ---- layout -------------------------------------------------------------------------------
 
 // Every segment opens with its own emoji, which already marks where it starts: a plain gap
@@ -316,14 +481,15 @@ export function fit(segs, maxWidth) {
   return live.map(current);
 }
 
-// env lets tests replace the clock, the terminal width and the two sources that touch
-// the machine (git and the account file).
+// env lets tests replace the clock, the terminal width and the sources that touch the
+// machine (git, the account file and the update check).
 export function render(data, env = {}) {
   const {
     now = Date.now(),
     columns = Number(process.env.COLUMNS) || 0,
     git = gitInfo,
     account = accountEmail,
+    update = updateAvailable,
   } = env;
   const profile = profileDir(data);
   const dir = data.workspace?.current_dir || data.cwd || '';
@@ -336,6 +502,7 @@ export function render(data, env = {}) {
     segContext(data),
     segBudget(data, now),
     segAccount(profile, account(profile)),
+    segUpdate(update(now)),
   ].filter(Boolean);
 
   // 6 columns of margin for the padding Claude Code puts around the status line
@@ -355,7 +522,17 @@ function isMain() {
   }
 }
 
-if (isMain()) {
+// --update and --check-update always exit 0: a non-zero exit would abort the
+// /statusline-update command before Claude could report what went wrong.
+const main = isMain();
+const flag = main ? process.argv[2] : undefined;
+if (flag === '--version') {
+  console.log(parseVersion(fs.readFileSync(SELF, 'utf8')) || 'unversioned');
+} else if (flag === '--update') {
+  selfUpdate().then(console.log, err => console.log(`The status line was not updated: ${err.message}`));
+} else if (flag === '--check-update') {
+  checkForUpdate().catch(() => {});
+} else if (main) {
   let input = '';
   // if stdin never closes, an empty status line beats a process left hanging
   setTimeout(() => process.exit(0), 3000).unref();
