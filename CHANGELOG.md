@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-24
+
+### Added
+
+- **`/statusline-update`**, a Claude Code command that installs the latest release from
+  inside a session. The script downloads the release and refuses it unless it matches the
+  release's `SHA256SUMS.txt` and version, and runs correctly on sample data. It keeps the
+  previous version as a backup, and Claude then tells you what changed. The installer adds
+  the command to each profile it configures. The same update is available from a terminal
+  as `node statusline.mjs --update`.
+- **`🆕 v1.3.0 /statusline-update`** at the end of the line when a newer release is out.
+  A background process checks GitHub at most once a day, so the line never waits for the
+  network; `STATUSLINE_NO_UPDATE_CHECK=1` turns the check off. It is the first segment to
+  shorten and the first to go on a narrow terminal.
+- `node statusline.mjs --version` prints the installed version.
+
+This release has to be installed with `install.bat` once more. From then on,
+`/statusline-update` takes care of it.
+
 ## [1.1.1] - 2026-09-24
 
 ### Fixed
@@ -49,7 +68,8 @@ First public release.
 - **`claude-profile.bat`** to start Claude Code on an alternative profile, with a
   confirmation before a mistyped name creates an empty one.
 
-[Unreleased]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/hybrid2102/statusline-for-claude-code/releases/tag/v1.0.0
