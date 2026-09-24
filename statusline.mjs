@@ -269,7 +269,7 @@ function segBudget(data, now) {
   const show = w => {
     const c = COLOR[w.light];
     const proj = w.projection != null ? dim('→') + paint(c, `${Math.min(999, Math.round(w.projection))}%`) : '';
-    const reset = w.resetsInMs != null ? dim(` ↺${formatDuration(w.resetsInMs)}`) : '';
+    const reset = w.resetsInMs != null ? dim(` (${formatDuration(w.resetsInMs)})`) : '';
     return `${dim(w.label)} ${paint(c, `${Math.round(w.used)}%`)}${proj}${reset}`;
   };
   return {

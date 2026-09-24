@@ -39,7 +39,7 @@ shows how much you have used, **where you will land at the reset if you keep thi
 how long until the reset:
 
 ```
-🟢 5h 20%→40% ↺2h30m · 7d 25%→51% ↺3d13h
+🟢 5h 20%→40% (2h30m) · 7d 25%→51% (3d13h)
 ```
 
 The projection is `used ÷ fraction of the window elapsed`: 20% used half-way through the

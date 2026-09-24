@@ -189,7 +189,7 @@ describe('render', () => {
     assert.equal(
       plain(line),
       '🔖 refactor billing  📁 acme-web  🌿 main  🤖 Opus 5.5 · high  🧠 111k 11%  ' +
-        '🟢 5h 20%→40% ↺2h30m · 7d 25%→51% ↺3d13h  👤 dev'
+        '🟢 5h 20%→40% (2h30m) · 7d 25%→51% (3d13h)  👤 dev'
     );
     assert.ok(!line.includes(RED) && !line.includes(YELLOW), 'a calm state must not use red or yellow');
   });
