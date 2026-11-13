@@ -21,14 +21,15 @@ Most status lines show everything they can. This one follows two rules:
    light. Yellow and red appear only on what needs your attention, so they are noticed
    when they show up.
 
-The segments answer four questions, left to right:
+The segments answer five questions, left to right:
 
 | Question | Segments |
 | --- | --- |
+| Whose budget is this? | 👤 account |
 | Am I working in the right place? | 🔖 session · 📁 project · 🌿 branch |
-| Which levers decide how much I consume? | 🤖 model · effort |
+| Which levers decide how much I consume? | 🤖 model · effort · advisor |
 | How heavy is the next message? | 🧠 context · ❄ cold cache |
-| Can I push harder, and whose budget is it? | 🟢 5h · 7d budget · 👤 account |
+| Can I push harder? | 🟢 5h · 7d budget |
 
 ## Reading the line
 
@@ -81,9 +82,11 @@ blocks you: conflicts (`!2`), an operation left half-way (`REBASE`, `MERGE`, `PI
 
 - **📁 project**, with the sub-folder if you are working inside one (`acme-web/src/…/api`)
   and `+N` for extra folders added to the session.
-- **🤖 model · effort**, plus the output style when it is not the default. **⚡** marks fast
+- **🤖 model · effort · advisor**, plus the output style when it is not the default. The
+  advisor (`advisor opus`) is read from `advisorModel` in the settings files, because Claude
+  Code does not send it to the status line; a per-session `--advisor` flag is not visible. **⚡** marks fast
   mode, the only engine setting that costs more and therefore gets a colour.
-- **👤 account**: the part of your e-mail before the `@`, plus the profile folder when it is
+- **👤 account**, always first: the part of your e-mail before the `@`, plus the profile folder when it is
   not the standard `.claude`. With several profiles open in different windows, this is how
   you tell whose budget you are spending.
 - **🆕 v1.3.0 /statusline-update**, at the end of the line, when a newer release is out.
@@ -227,7 +230,7 @@ and model rather than disappearing. Please report the message.
 ## Privacy
 
 The status line reads the input Claude Code sends, the `oauthAccount.emailAddress` field
-of `.claude.json` and the output of `git status`. Its only network request is the daily
+of `.claude.json`, the `advisorModel` setting and the output of `git status`. Its only network request is the daily
 check for a new release, which asks the GitHub API for the latest release of this project
 and sends nothing about you or your sessions; it can be turned off. It writes only the
 result of that check, next to the script, and a copy of its input if you enable debug

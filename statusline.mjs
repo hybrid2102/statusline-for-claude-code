@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // version: 1.2.0
 //
-// A status line for Claude Code that answers four questions at a glance:
+// A status line for Claude Code that answers five questions at a glance:
 //
+//   whose budget        👤 account                    -> shown first, kept longest
 //   where am I          📁 project   🌿 branch        -> am I working in the right place?
-//   with what           🤖 model · effort             -> the levers that decide consumption
+//   with what           🤖 model · effort · advisor   -> the levers that decide consumption
 //   what does it cost   🧠 context   ❄ cold cache     -> how heavy is the next message?
-//   what is left        🟢 5h · 7d   👤 account       -> can I push harder or should I slow down?
+//   what is left        🟢 5h · 7d                    -> can I push harder or should I slow down?
 //
 // Two rules shape everything below. Every segment must lead to a decision, or it is not
 // shown. And colour means "look here": in normal conditions the line is almost entirely
@@ -84,6 +85,24 @@ export function accountEmail(profile) {
   for (const p of [path.join(profile, '.claude.json'), `${profile}.json`, path.join(os.homedir(), '.claude.json')]) {
     try {
       return JSON.parse(fs.readFileSync(p, 'utf8')).oauthAccount?.emailAddress || '';
+    } catch {}
+  }
+  return '';
+}
+
+// The advisor model, if one is set. Claude Code does not put it in the status line input,
+// so it is read from the settings files, the most specific first: project local, project,
+// then the profile. A per-session `--advisor` flag leaves no trace there and cannot be seen.
+export function advisorModel(profile, dir) {
+  const out = [];
+  for (let d = dir; d; d = path.dirname(d)) {
+    out.push(path.join(d, '.claude', 'settings.local.json'), path.join(d, '.claude', 'settings.json'));
+    if (path.dirname(d) === d) break;
+  }
+  for (const p of [...out, path.join(profile, 'settings.json')]) {
+    try {
+      const v = JSON.parse(fs.readFileSync(p, 'utf8')).advisorModel;
+      if (typeof v === 'string') return v;
     } catch {}
   }
   return '';
@@ -183,10 +202,11 @@ function segBranch(g, worktree) {
   };
 }
 
-function segEngine(data) {
+function segEngine(data, advisor) {
   const model = data.model?.display_name || data.model?.id || '?';
   const extras = [
     data.effort?.level,
+    advisor && `advisor ${advisor}`,
     data.thinking?.enabled === false && 'no-think',
     data.output_style?.name && data.output_style.name !== 'default' && data.output_style.name,
   ].filter(Boolean);
@@ -280,14 +300,14 @@ function segBudget(data, now) {
   };
 }
 
-// Whose budget is being spent. With several profiles open in different windows this is
-// the only way to tell them apart; the part before the @ is enough.
+// Whose budget is being spent, shown first. With several profiles open in different windows
+// this is the only way to tell them apart; the part before the @ is enough.
 function segAccount(profile, email) {
   const name = path.basename(profile);
   const standard = name === '.claude';
   const id = [email.split('@')[0], standard ? '' : name].filter(Boolean).join(' · ');
   if (!id) return;
-  return { prio: 40, text: `👤 ${dim(id)}`, short: standard ? undefined : `👤 ${dim(name)}` };
+  return { prio: 97, text: `👤 ${dim(id)}`, short: standard ? undefined : `👤 ${dim(name)}` };
 }
 
 // A newer release, with the command that installs it. The most dispensable segment: it
@@ -482,26 +502,27 @@ export function fit(segs, maxWidth) {
 }
 
 // env lets tests replace the clock, the terminal width and the sources that touch the
-// machine (git, the account file and the update check).
+// machine (git, the account file, the advisor setting and the update check).
 export function render(data, env = {}) {
   const {
     now = Date.now(),
     columns = Number(process.env.COLUMNS) || 0,
     git = gitInfo,
     account = accountEmail,
+    advisor = advisorModel,
     update = updateAvailable,
   } = env;
   const profile = profileDir(data);
   const dir = data.workspace?.current_dir || data.cwd || '';
 
   const segs = [
+    segAccount(profile, account(profile)),
     data.session_name && { prio: 60, text: `🔖 ${data.session_name}` },
     segProject(data),
     segBranch(dir ? git(dir) : null, data.worktree?.name),
-    segEngine(data),
+    segEngine(data, advisor(profile, dir)),
     segContext(data),
     segBudget(data, now),
-    segAccount(profile, account(profile)),
     segUpdate(update(now)),
   ].filter(Boolean);
 

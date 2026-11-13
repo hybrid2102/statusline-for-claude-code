@@ -39,7 +39,7 @@ const NOW = 1790000000 * 1000 - 2.5 * HOUR;
 
 const cleanRepo = { branch: 'main', ahead: 0, behind: 0, gone: false, changes: 0, conflicts: 0, op: '' };
 const renderWith = (data, env = {}) =>
-  render(data, { now: NOW, columns: 0, git: () => cleanRepo, account: () => 'dev@example.com', update: () => null, ...env });
+  render(data, { now: NOW, columns: 0, git: () => cleanRepo, account: () => 'dev@example.com', advisor: () => '', update: () => null, ...env });
 
 describe('formatTokens', () => {
   it('uses k and M with sensible rounding', () => {
@@ -196,8 +196,8 @@ describe('render', () => {
     const line = renderWith(fixture());
     assert.equal(
       plain(line),
-      '🔖 refactor billing  📁 acme-web  🌿 main  🤖 Opus 5.5 · high  🧠 111k 11%  ' +
-        '🟢 5h 20%→40% (2h30m) · 7d 25%→51% (3d13h)  👤 dev'
+      '👤 dev  🔖 refactor billing  📁 acme-web  🌿 main  🤖 Opus 5.5 · high  🧠 111k 11%  ' +
+        '🟢 5h 20%→40% (2h30m) · 7d 25%→51% (3d13h)'
     );
     assert.ok(!line.includes(RED) && !line.includes(YELLOW), 'a calm state must not use red or yellow');
   });
@@ -249,8 +249,12 @@ describe('render', () => {
 
   it('advertises a newer release, and gives it up first when the terminal is narrow', () => {
     const update = () => '9.9.9';
-    assert.match(plain(renderWith(fixture(), { update })), /👤 dev  🆕 v9\.9\.9 \/statusline-update$/);
+    assert.match(plain(renderWith(fixture(), { update })), /🟢 .*  🆕 v9\.9\.9 \/statusline-update$/);
     assert.doesNotMatch(plain(renderWith(fixture(), { update, columns: 120 })), /statusline-update/);
+  });
+
+  it('shows the advisor next to the engine settings when one is set', () => {
+    assert.match(plain(renderWith(fixture(), { advisor: () => 'opus' })), /🤖 Opus 5\.5 · high · advisor opus/);
   });
 
   it('survives a nearly empty input', () => {
@@ -259,7 +263,7 @@ describe('render', () => {
     const saved = process.env.CLAUDE_CONFIG_DIR;
     delete process.env.CLAUDE_CONFIG_DIR;
     try {
-      assert.equal(plain(renderWith({})), '📁 ?  🤖 ?  👤 dev');
+      assert.equal(plain(renderWith({})), '👤 dev  📁 ?  🤖 ?');
     } finally {
       if (saved !== undefined) process.env.CLAUDE_CONFIG_DIR = saved;
     }

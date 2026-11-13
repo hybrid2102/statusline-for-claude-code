@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Advisor**: the model set with `/advisor` shows in the engine segment (`🤖 Opus 5.5 ·
+  high · advisor opus`). Claude Code does not put it in the status line input, so it is read
+  from `advisorModel` in the project or profile settings; a per-session `--advisor` flag
+  leaves no trace there and is not shown.
+
+### Changed
+
+- The account (👤) is now the first segment, and the last one dropped on a narrow terminal.
+
 ## [1.2.0] - 2026-09-24
 
 ### Added
