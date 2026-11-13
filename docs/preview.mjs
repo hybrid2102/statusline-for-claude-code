@@ -30,7 +30,7 @@ const scenarios = [
     'Something needs attention: a rebase left half-way, a heavy context with a cold cache, a week burning too fast',
     render(attention, env({ git: () => ({ ...clean, changes: 9, op: 'REBASE' }) })),
   ],
-  ['A narrow terminal: segments shorten first, the budget stays', render(base, env({ columns: 72 }))],
+  ['A narrow terminal: segments compress first, the budget stays', render(base, env({ columns: 72 }))],
 ];
 
 // GitHub dark palette

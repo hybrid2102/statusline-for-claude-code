@@ -16,6 +16,12 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - The account (👤) is now the first segment, and the last one dropped on a narrow terminal.
+- **A narrow terminal compresses the line instead of emptying it.** Every segment has several
+  forms, from full to most compact (budget without reset times, then one window; model
+  without advisor, then effort; branch, session and folder names cut with `…`), and all
+  of them compress before any segment is dropped. Room freed by a drop goes back to the most
+  important segments. At 110 columns a busy line (long branch, worktree, advisor, update)
+  now keeps all eight segments, where it used to keep five.
 
 ## [1.2.0] - 2026-09-24
 

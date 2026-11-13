@@ -63,6 +63,25 @@ export const visibleWidth = s => {
   return w;
 };
 
+// Cuts plain text (never a string with ANSI codes) to at most max columns, marking the cut
+// with "…". With middle, the end is kept too: branch names differ mostly in their tail.
+export const truncate = (text, max, middle = false) => {
+  if (visibleWidth(text) <= max) return text;
+  const chars = [...text];
+  const take = (list, cols) => {
+    const out = [];
+    for (const c of list) {
+      if (visibleWidth(out.join('') + c) > cols) break;
+      out.push(c);
+    }
+    return out;
+  };
+  if (!middle) return take(chars, max - 1).join('') + '…';
+  const head = take(chars, Math.ceil((max - 1) / 2));
+  const tail = take([...chars].reverse(), max - 1 - visibleWidth(head.join(''))).reverse();
+  return head.join('') + '…' + tail.join('');
+};
+
 // ---- sources ------------------------------------------------------------------------------
 
 // The active profile. transcript_path always lives in <profile>/projects/<slug>/<id>.jsonl,
@@ -167,7 +186,10 @@ export function gitInfo(dir) {
 }
 
 // ---- segments -----------------------------------------------------------------------------
-// Each returns { prio, text, short? } or nothing. See fit() for how prio and short are used.
+// Each returns { prio, forms } or nothing: forms go from the full text to the most compact
+// one that still says something. See fit() for how prio and forms are used. A compact form
+// keeps the warnings: red and yellow, ⚡ and ❄ stay until the segment itself goes (of
+// several git alarms, the first one).
 
 function segProject(data) {
   const dir = data.workspace?.current_dir || data.cwd || '';
@@ -182,23 +204,33 @@ function segProject(data) {
     where = path.basename(dir); // outside the project
   }
   const extra = data.workspace?.added_dirs?.length;
-  return { prio: 100, text: `📁 ${where}${extra ? dim(` +${extra}`) : ''}`, short: `📁 ${base}` };
+  return {
+    prio: 100,
+    forms: [`📁 ${where}${extra ? dim(` +${extra}`) : ''}`, `📁 ${base}`, `📁 ${truncate(base, 12)}`],
+  };
 }
 
 function segBranch(g, worktree) {
   if (!g) return;
   // in a worktree the same repository is open in several folders: the name says which
-  const wt = worktree ? ` 🌳 ${worktree}` : '';
+  const name = (branch, wt) => `🌿 ${branch}${worktree ? ` 🌳 ${wt}` : ''}`;
   // Pending changes and ahead/behind are the normal state of work, so they stay grey.
   // Red is kept for what blocks you: conflicts, an operation left half-way, a lost upstream.
   const alarm = [g.op, g.conflicts && `!${g.conflicts}`, g.gone && 'upstream gone'].filter(Boolean);
   const sync = `${g.ahead ? `↑${g.ahead}` : ''}${g.behind ? `↓${g.behind}` : ''}`;
   const state = [g.changes && `*${g.changes}`, sync].filter(Boolean).join(' ');
-  const alarmText = alarm.length ? ' ' + paint(RED, alarm.join(' ')) : '';
+  const alarmAll = alarm.length ? ' ' + paint(RED, alarm.join(' ')) : '';
+  const alarmFirst = alarm.length ? ' ' + paint(RED, alarm[0]) : '';
+  const full = name(g.branch, worktree);
   return {
     prio: 85,
-    text: `🌿 ${g.branch}${wt}${state ? ' ' + dim(state) : ''}${alarmText}`,
-    short: `🌿 ${g.branch}${wt}${alarm.length ? ' ' + paint(RED, alarm[0]) : ''}`,
+    forms: [
+      `${full}${state ? ' ' + dim(state) : ''}${alarmAll}`,
+      `${full}${alarmAll}`,
+      `${full}${alarmFirst}`,
+      name(truncate(g.branch, 18, true), truncate(worktree || '', 10, true)) + alarmFirst,
+      name(truncate(g.branch, 10, true), truncate(worktree || '', 6, true)) + alarmFirst,
+    ],
   };
 }
 
@@ -212,10 +244,17 @@ function segEngine(data, advisor) {
   ].filter(Boolean);
   // fast mode costs more: the only engine setting that earns a colour
   const fast = data.fast_mode ? ' ' + paint(YELLOW, '⚡') : '';
+  const withExtras = list => `🤖 ${model}${fast}${list.length ? dim(' · ' + list.join(' · ')) : ''}`;
+  // the effort is the lever you touch most often, so it is the last extra to go;
+  // then the version number of the model, which rarely changes during a session
   return {
     prio: 95,
-    text: `🤖 ${model}${fast}${extras.length ? dim(' · ' + extras.join(' · ')) : ''}`,
-    short: `🤖 ${model}${fast}`,
+    forms: [
+      withExtras(extras),
+      withExtras(extras.slice(0, data.effort?.level ? 1 : 0)),
+      `🤖 ${model}${fast}`,
+      `🤖 ${model.split(' ')[0]}${fast}`,
+    ],
   };
 }
 
@@ -240,8 +279,11 @@ function segContext(data) {
   const cold = pc?.caching_observed && pc.warm === false && pc.recache_tokens_if_cold >= 50000;
   return {
     prio: 90,
-    text: `🧠 ${size}${cold ? ' ' + paint(YELLOW, `❄ ${formatTokens(pc.recache_tokens_if_cold)}`) : ''}`,
-    short: `🧠 ${paint(color, pctText)}${cold ? ' ' + paint(YELLOW, '❄') : ''}`,
+    forms: [
+      `🧠 ${size}${cold ? ' ' + paint(YELLOW, `❄ ${formatTokens(pc.recache_tokens_if_cold)}`) : ''}`,
+      `🧠 ${size}${cold ? ' ' + paint(YELLOW, '❄') : ''}`,
+      `🧠 ${paint(color, pctText)}${cold ? ' ' + paint(YELLOW, '❄') : ''}`,
+    ],
   };
 }
 
@@ -282,21 +324,22 @@ function segBudget(data, now) {
   if (!windows.length) {
     // pay-as-you-go accounts have no windows: the budget is dollars
     const cost = data.cost?.total_cost_usd;
-    return cost != null ? { prio: 98, text: `💰 $${cost.toFixed(2)}` } : undefined;
+    return cost != null ? { prio: 98, forms: [`💰 $${cost.toFixed(2)}`] } : undefined;
   }
   const COLOR = { green: '', yellow: YELLOW, red: RED };
   const LIGHT = { green: '🟢', yellow: '🟡', red: '🔴' };
   const worst = windows.reduce((a, b) => (a.risk >= b.risk ? a : b));
-  const show = w => {
+  const show = (w, withReset) => {
     const c = COLOR[w.light];
     const proj = w.projection != null ? dim('→') + paint(c, `${Math.min(999, Math.round(w.projection))}%`) : '';
-    const reset = w.resetsInMs != null ? dim(` (${formatDuration(w.resetsInMs)})`) : '';
+    const reset = withReset && w.resetsInMs != null ? dim(` (${formatDuration(w.resetsInMs)})`) : '';
     return `${dim(w.label)} ${paint(c, `${Math.round(w.used)}%`)}${proj}${reset}`;
   };
+  const line = (list, withReset) => `${LIGHT[worst.light]} ${list.map(w => show(w, withReset)).join(dim(' · '))}`;
+  // both windows for as long as they fit, then the one that decides the light
   return {
     prio: 98,
-    text: `${LIGHT[worst.light]} ${windows.map(show).join(dim(' · '))}`,
-    short: `${LIGHT[worst.light]} ${show(worst)}`,
+    forms: [line(windows, true), line(windows, false), line([worst], true), line([worst], false)],
   };
 }
 
@@ -307,14 +350,22 @@ function segAccount(profile, email) {
   const standard = name === '.claude';
   const id = [email.split('@')[0], standard ? '' : name].filter(Boolean).join(' · ');
   if (!id) return;
-  return { prio: 97, text: `👤 ${dim(id)}`, short: standard ? undefined : `👤 ${dim(name)}` };
+  // in a profile name only what follows ".claude" tells it from the others
+  const short = standard ? id : name;
+  const tiny = standard ? truncate(id, 8) : truncate(name.replace(/^\.claude[-_.]?/, '') || name, 8, true);
+  return { prio: 97, forms: [`👤 ${dim(id)}`, `👤 ${dim(short)}`, `👤 ${dim(tiny)}`] };
+}
+
+function segSession(name) {
+  if (!name) return;
+  return { prio: 60, forms: [`🔖 ${name}`, `🔖 ${truncate(name, 14)}`, `🔖 ${truncate(name, 9)}`] };
 }
 
 // A newer release, with the command that installs it. The most dispensable segment: it
 // shortens first and goes before anything else does.
 function segUpdate(latest) {
   if (!latest) return;
-  return { prio: 30, text: `🆕 ${dim(`v${latest} /statusline-update`)}`, short: `🆕 ${dim(`v${latest}`)}` };
+  return { prio: 30, forms: [`🆕 ${dim(`v${latest} /statusline-update`)}`, `🆕 ${dim(`v${latest}`)}`, '🆕'] };
 }
 
 // ---- updates ------------------------------------------------------------------------------
@@ -480,25 +531,58 @@ export async function selfUpdate({ get = fetch, file = SELF, test = smokeTest, n
 // is enough between segments and leaves " · " as the only mark, used inside a segment.
 const GAP = '  ';
 
-// When the line does not fit, give things up in order of importance. Shortening a segment
-// costs less than dropping it, so its short form comes 30 points earlier: "Opus · high"
-// becomes "Opus" before the branch disappears, and the budget is the last to go.
+// When the line does not fit, compress before giving anything up. Every segment moves one
+// form down, least important first, then every segment a second form, and so on: a hidden
+// segment costs more than a terse one. Only when all of them are at their most compact are
+// segments dropped, least important first, and the budget is the last to go. Finally the
+// room a step left over goes back, most important first: a drop can free more than needed.
+// Segments may also be given as { prio, text, short }.
 export function fit(segs, maxWidth) {
-  const live = segs.map(s => ({ ...s }));
-  const current = s => (s.useShort ? s.short : s.text);
-  const width = () => live.reduce((w, s) => w + visibleWidth(current(s)), 0) + GAP.length * (live.length - 1);
-  const steps = live
-    .flatMap(s => [
-      s.short && { at: s.prio - 30, apply: () => (s.useShort = true) },
-      { at: s.prio, apply: () => live.splice(live.indexOf(s), 1) },
-    ])
-    .filter(Boolean)
-    .sort((a, b) => a.at - b.at);
-  for (const step of steps) {
-    if (maxWidth <= 0 || live.length <= 1 || width() <= maxWidth) break;
-    step.apply();
+  const live = segs.map(s => {
+    const forms = [];
+    for (const f of s.forms || [s.text, s.short]) {
+      if (f && (!forms.length || visibleWidth(f) < visibleWidth(forms.at(-1)))) forms.push(f);
+    }
+    return { prio: s.prio, forms, level: 0, shown: true };
+  });
+  const result = () => live.filter(s => s.shown).map(s => s.forms[s.level]);
+  const fits = () => {
+    const shown = result();
+    return shown.reduce((w, f) => w + visibleWidth(f), 0) + GAP.length * (shown.length - 1) <= maxWidth;
+  };
+  if (maxWidth <= 0 || fits()) return result();
+
+  const byPrio = [...live].sort((a, b) => a.prio - b.prio);
+  const depth = Math.max(...live.map(s => s.forms.length));
+  const steps = [];
+  for (let level = 1; level < depth; level++) {
+    for (const s of byPrio) if (level < s.forms.length) steps.push({ s, level });
   }
-  return live.map(current);
+  for (const s of byPrio) steps.push({ s, drop: true });
+
+  const done = [];
+  for (const step of steps) {
+    if (fits()) break;
+    if (step.drop && live.filter(s => s.shown).length <= 1) break;
+    if (step.drop) step.s.shown = false;
+    else step.s.level = step.level;
+    done.push(step);
+  }
+  // give back what still fits, in the reverse order: dropped segments first, at their most
+  // compact, even a less important one when a more important one is too wide to return.
+  // A compression that cannot be undone also keeps the earlier ones of the same segment,
+  // since its level no longer matches theirs.
+  for (const step of done.reverse()) {
+    const { s } = step;
+    if (step.drop) {
+      s.shown = true;
+      if (!fits()) s.shown = false;
+    } else if (s.level === step.level) {
+      s.level--;
+      if (!fits()) s.level++;
+    }
+  }
+  return result();
 }
 
 // env lets tests replace the clock, the terminal width and the sources that touch the
@@ -517,7 +601,7 @@ export function render(data, env = {}) {
 
   const segs = [
     segAccount(profile, account(profile)),
-    data.session_name && { prio: 60, text: `🔖 ${data.session_name}` },
+    segSession(data.session_name),
     segProject(data),
     segBranch(dir ? git(dir) : null, data.worktree?.name),
     segEngine(data, advisor(profile, dir)),

@@ -94,9 +94,23 @@ blocks you: conflicts (`!2`), an operation left half-way (`REBASE`, `MERGE`, `PI
 
 ### Narrow terminals
 
-The line adapts to the terminal width. Segments are **shortened before any is dropped** (the
-effort goes before the branch does), and the least important go first. The budget is the
-last to disappear.
+The line adapts to the terminal width by **compressing every segment before dropping any**.
+Each one has a few forms, from the full text to the most compact: the reset times and then
+one of the two windows leave the budget, the advisor and then the effort leave the model,
+long branch, session and folder names are cut with `…`. The least important segments
+compress first, and a warning (red, yellow, ⚡, ❄) stays as long as its segment does.
+
+Only when everything is at its most compact and the line still does not fit are segments
+dropped, least important first; the budget is the last to go. Room freed by a drop goes back
+to the most important segments, and a dropped segment that fits again in its compact form
+returns.
+
+```
+🟢 5h 20%→40% (2h30m) · 7d 25%→51% (3d13h)     full
+🟢 5h 20%→40% · 7d 25%→51%                     no reset times
+🟢 7d 25%→51% (3d13h)                          only the window that decides the light
+🟢 7d 25%→51%                                  most compact
+```
 
 ## Install
 

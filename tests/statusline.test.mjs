@@ -20,6 +20,7 @@ import {
   profileDir,
   render,
   selfUpdate,
+  truncate,
   updateAvailable,
   visibleWidth,
 } from '../statusline.mjs';
@@ -168,9 +169,9 @@ describe('fit', () => {
     assert.deepEqual(fit(segs, 30), ['AAAAAAAAAA', 'BBBBBBBBBB', 'C']);
   });
 
-  it('drops segments by priority once shortening is not enough', () => {
-    // A shortens at 70, still before B is dropped at 85
-    assert.deepEqual(fit(segs, 14), ['A', 'C']);
+  it('drops segments by priority once shortening is not enough, then gives back the room left', () => {
+    // A and C shorten, B still does not fit and goes; that frees enough for A in full
+    assert.deepEqual(fit(segs, 14), ['AAAAAAAAAA', 'C']);
   });
 
   it('always keeps at least one segment', () => {
@@ -180,7 +181,38 @@ describe('fit', () => {
   it('does not modify its input', () => {
     fit(segs, 1);
     assert.equal(segs.length, 3);
-    assert.equal(segs[2].useShort, undefined);
+    assert.deepEqual(Object.keys(segs[2]), ['prio', 'text', 'short']);
+  });
+
+  it('compresses every segment, one form at a time, before dropping any', () => {
+    const ladder = [
+      { prio: 98, forms: ['budget-full', 'budget', 'b'] },
+      { prio: 60, forms: ['session-full', 'session', 's'] },
+    ];
+    // one form down each, least important first
+    assert.deepEqual(fit(ladder, 20), ['budget-full', 'session']);
+    assert.deepEqual(fit(ladder, 15), ['budget', 'session']);
+    // the session goes only when both are at their most compact and still do not fit
+    assert.deepEqual(fit(ladder, 4), ['b', 's']);
+    assert.deepEqual(fit(ladder, 3), ['b']);
+  });
+
+  it('brings back a dropped segment that fits, even when a more important one does not', () => {
+    const three = [
+      { prio: 90, forms: ['IIIIIIIIIIIIIIIIIIII'] },
+      { prio: 80, forms: ['BBBBBBBBBBBB'] },
+      { prio: 60, forms: ['SS'] },
+    ];
+    // S goes, then B: there is room for S again, not for B
+    assert.deepEqual(fit(three, 25), ['IIIIIIIIIIIIIIIIIIII', 'SS']);
+  });
+});
+
+describe('truncate', () => {
+  it('cuts at the end, or in the middle to keep the tail', () => {
+    assert.equal(truncate('refactor billing', 9), 'refactor…');
+    assert.equal(truncate('feature/billing-refactor', 10, true), 'featu…ctor');
+    assert.equal(truncate('main', 10, true), 'main');
   });
 });
 
@@ -245,6 +277,42 @@ describe('render', () => {
     assert.ok(visibleWidth(line) <= 54, `too wide: ${line}`);
     assert.match(line, /🟢/);
     assert.match(line, /📁 acme-web/);
+  });
+
+  it('compresses instead of hiding: with more room, a segment goes only for a more important one', () => {
+    const data = { ...fixture(), worktree: { name: 'hotfix-long-name' } };
+    data.fast_mode = true;
+    const env = {
+      git: () => ({ ...cleanRepo, branch: 'feature/billing-refactor', changes: 9, ahead: 2, op: 'REBASE' }),
+      advisor: () => 'opus',
+      update: () => '9.9.9',
+    };
+    const PRIO = { '📁': 100, '🟢': 98, '👤': 97, '🤖': 95, '🧠': 90, '🌿': 85, '🔖': 60, '🆕': 30 };
+    const icons = line => new Set(line.match(/👤|🔖|📁|🌿|🤖|🧠|🟢|🆕/gu));
+    let before = new Set();
+    for (let columns = 20; columns <= 220; columns++) {
+      const line = plain(renderWith(data, { ...env, columns }));
+      if (line.includes('  ')) assert.ok(visibleWidth(line) <= columns - 6, `too wide at ${columns}: ${line}`);
+      const now = icons(line);
+      const arrived = Math.max(0, ...[...now].filter(i => !before.has(i)).map(i => PRIO[i]));
+      for (const icon of before) {
+        assert.ok(now.has(icon) || PRIO[icon] < arrived, `${icon} lost at ${columns}: ${line}`);
+      }
+      // what is kept keeps its warnings
+      if (now.has('🌿')) assert.match(line, /REBASE/);
+      if (now.has('🤖')) assert.match(line, /⚡/);
+      before = now;
+    }
+    // 110 columns used to show only the account, the project, the model, the context and the
+    // budget: now every segment is there, compressed
+    assert.equal(icons(plain(renderWith(data, { ...env, columns: 110 }))).size, 8);
+  });
+
+  it('keeps telling profiles apart when the account is at its most compact', () => {
+    const data = fixture();
+    data.transcript_path = path.join('/home/dev/.claude-work', 'projects', 'slug', 'id.jsonl');
+    const line = plain(renderWith(data, { account: () => 'someone.long@example.com', columns: 30 }));
+    assert.match(line, /👤 work/);
   });
 
   it('advertises a newer release, and gives it up first when the terminal is narrow', () => {
