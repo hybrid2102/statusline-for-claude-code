@@ -614,6 +614,92 @@ export function render(data, env = {}) {
   return fit(segs, columns - 6).join(GAP);
 }
 
+// ---- Orca ---------------------------------------------------------------------------------
+
+// Orca (https://github.com/stablyai/orca) reads the 5h and 7d windows from the status line
+// input instead of polling the usage endpoint. It only installs its own status line when the
+// slot is empty, so with this one in place it would go blind: the windows are passed on to
+// it, the way its own script does. Only rate_limits is sent, the one field Orca reads.
+// https://github.com/stablyai/orca/blob/main/src/main/claude/hooks/statusline-script.ts
+const ORCA_PATH = '/statusline/claude';
+// renders arrive several times a second; Orca's own script posts at most every 15 seconds
+const ORCA_EVERY_MS = 15e3;
+
+// The pane to report for, or null when this session does not run inside Orca. Claude
+// background jobs inherit the pane of the session that started them, so they are skipped.
+export function orcaPane(data, env = process.env) {
+  if (!env.ORCA_PANE_KEY || env.CLAUDE_JOB_DIR) return null;
+  const rl = data.rate_limits;
+  return rl && typeof rl === 'object' && (rl.five_hour || rl.seven_day) ? env.ORCA_PANE_KEY : null;
+}
+
+// Whether this render should post, keeping one timestamp per pane in the temp folder. The
+// timestamp is written before the post starts, so that the next renders do not start one too.
+export function orcaDue(pane, now, dir = os.tmpdir()) {
+  const id = crypto.createHash('sha256').update(pane).digest('hex').slice(0, 16);
+  const stamp = path.join(dir, `claude-statusline-orca-${id}`);
+  try {
+    const last = Number(fs.readFileSync(stamp, 'utf8'));
+    if (last <= now && now - last < ORCA_EVERY_MS) return false;
+  } catch {}
+  try {
+    fs.writeFileSync(stamp, String(now));
+  } catch {}
+  return true;
+}
+
+// Orca writes its port and token to a file as well, which outlives a restart of Orca, while
+// the environment of a running session does not: the file wins when it can be read. Its
+// lines are KEY=VALUE, prefixed with "set " on Windows.
+export function orcaEndpoint(env = process.env) {
+  const out = {};
+  for (const k of ['ORCA_AGENT_HOOK_PORT', 'ORCA_AGENT_HOOK_TOKEN', 'ORCA_AGENT_HOOK_ENV', 'ORCA_AGENT_HOOK_VERSION']) {
+    if (env[k]) out[k] = env[k];
+  }
+  if (env.ORCA_AGENT_HOOK_ENDPOINT) {
+    try {
+      for (const line of fs.readFileSync(env.ORCA_AGENT_HOOK_ENDPOINT, 'utf8').split(/\r?\n/)) {
+        const m = /^(?:set\s+)?(ORCA_AGENT_HOOK_[A-Z_]+)=(.*)$/i.exec(line.trim());
+        if (m) out[m[1].toUpperCase()] = m[2];
+      }
+    } catch {}
+  }
+  return out;
+}
+
+// The post itself, run by a detached `--orca-forward` so the render never waits for it.
+// Every failure is silent: Orca being closed must not show up on the status line.
+export async function forwardToOrca(rateLimits, { env = process.env, post = fetch } = {}) {
+  const ep = orcaEndpoint(env);
+  if (!env.ORCA_PANE_KEY || !/^\d+$/.test(ep.ORCA_AGENT_HOOK_PORT || '') || !ep.ORCA_AGENT_HOOK_TOKEN) return false;
+  const body = new URLSearchParams({
+    paneKey: env.ORCA_PANE_KEY,
+    configDir: env.CLAUDE_CONFIG_DIR || '',
+    env: ep.ORCA_AGENT_HOOK_ENV || '',
+    version: ep.ORCA_AGENT_HOOK_VERSION || '',
+    payload: JSON.stringify({ rate_limits: rateLimits }),
+  });
+  try {
+    const res = await post(`http://127.0.0.1:${ep.ORCA_AGENT_HOOK_PORT}${ORCA_PATH}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Orca-Agent-Hook-Token': ep.ORCA_AGENT_HOOK_TOKEN },
+      body: body.toString(),
+      signal: AbortSignal.timeout(1500),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function startOrcaForward(rateLimits) {
+  spawn(process.execPath, [SELF, '--orca-forward', JSON.stringify(rateLimits)], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  }).unref();
+}
+
 // ---- entry point --------------------------------------------------------------------------
 
 function isMain() {
@@ -637,6 +723,10 @@ if (flag === '--version') {
   selfUpdate().then(console.log, err => console.log(`The status line was not updated: ${err.message}`));
 } else if (flag === '--check-update') {
   checkForUpdate().catch(() => {});
+} else if (flag === '--orca-forward') {
+  try {
+    forwardToOrca(JSON.parse(process.argv[3])).catch(() => {});
+  } catch {}
 } else if (main) {
   let input = '';
   // if stdin never closes, an empty status line beats a process left hanging
@@ -664,5 +754,9 @@ if (flag === '--version') {
       const dir = path.basename(data.workspace?.current_dir || data.cwd || '');
       console.log(`📁 ${dir}${GAP}🤖 ${data.model?.display_name || '?'}${GAP}${dim(`⚠ statusline: ${err.message}`)}`);
     }
+    try {
+      const pane = orcaPane(data);
+      if (pane && orcaDue(pane, Date.now())) startOrcaForward(data.rate_limits);
+    } catch {}
   });
 }

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -13,8 +14,12 @@ import {
   checkForUpdate,
   fit,
   formatDuration,
+  forwardToOrca,
   formatTokens,
   isNewer,
+  orcaDue,
+  orcaEndpoint,
+  orcaPane,
   parseGitStatus,
   parseVersion,
   profileDir,
@@ -32,6 +37,8 @@ const fixture = () => JSON.parse(fs.readFileSync(path.join(here, 'fixtures', 'in
 const plain = s => s.replace(/\x1b\[[0-9;]*m/g, '');
 const RED = '\x1b[31m';
 const YELLOW = '\x1b[33m';
+
+const withoutOrca = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('ORCA_')));
 
 const HOUR = 3600e3;
 const DAY = 24 * HOUR;
@@ -339,8 +346,9 @@ describe('render', () => {
 });
 
 describe('command line', () => {
-  // no update check: it would reach GitHub and leave a cache file in the repository
-  const env = { ...process.env, COLUMNS: '', STATUSLINE_NO_UPDATE_CHECK: '1' };
+  // no update check: it would reach GitHub and leave a cache file in the repository; and
+  // no Orca, in case the tests run inside it
+  const env = { ...withoutOrca(), COLUMNS: '', STATUSLINE_NO_UPDATE_CHECK: '1' };
   const run = input => spawnSync(process.execPath, [script], { input, encoding: 'utf8', env });
 
   it('prints one line for a real input', () => {
@@ -492,5 +500,104 @@ describe('updates', () => {
     const r = spawnSync(process.execPath, [file, '--update'], { encoding: 'utf8' });
     assert.equal(r.status, 0);
     assert.match(r.stdout, /was not updated/);
+  });
+});
+
+describe('Orca', () => {
+  const dirs = [];
+  after(() => dirs.forEach(d => fs.rmSync(d, { recursive: true, force: true })));
+  const tmp = () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'statusline-orca-'));
+    dirs.push(d);
+    return d;
+  };
+  const rl = fixture().rate_limits;
+
+  it('reports only from an Orca pane, with windows, outside background jobs', () => {
+    const pane = { ORCA_PANE_KEY: 'tab:1' };
+    assert.equal(orcaPane(fixture(), pane), 'tab:1');
+    assert.equal(orcaPane(fixture(), {}), null);
+    assert.equal(orcaPane(fixture(), { ...pane, CLAUDE_JOB_DIR: '/x' }), null);
+    assert.equal(orcaPane({ ...fixture(), rate_limits: undefined }, pane), null);
+    assert.equal(orcaPane({ rate_limits: {} }, pane), null);
+  });
+
+  it('posts at most every 15 seconds per pane', () => {
+    const dir = tmp();
+    assert.equal(orcaDue('a', 1000e3, dir), true);
+    assert.equal(orcaDue('a', 1010e3, dir), false);
+    assert.equal(orcaDue('b', 1010e3, dir), true);
+    assert.equal(orcaDue('a', 1015e3, dir), true);
+    // a clock that went back does not block posting
+    assert.equal(orcaDue('a', 900e3, dir), true);
+  });
+
+  it('prefers the endpoint file, in either syntax, to the environment', () => {
+    const dir = tmp();
+    const sh = path.join(dir, 'endpoint.env');
+    const cmd = path.join(dir, 'endpoint.cmd');
+    fs.writeFileSync(sh, 'ORCA_AGENT_HOOK_PORT=4000\nORCA_AGENT_HOOK_TOKEN=new\nOTHER=x\n');
+    fs.writeFileSync(cmd, 'set ORCA_AGENT_HOOK_PORT=5000\r\nset ORCA_AGENT_HOOK_TOKEN=win\r\n');
+    const env = { ORCA_AGENT_HOOK_PORT: '3000', ORCA_AGENT_HOOK_TOKEN: 'old', ORCA_AGENT_HOOK_ENV: 'production' };
+    assert.deepEqual(orcaEndpoint({ ...env, ORCA_AGENT_HOOK_ENDPOINT: sh }), { ...env, ORCA_AGENT_HOOK_PORT: '4000', ORCA_AGENT_HOOK_TOKEN: 'new' });
+    assert.deepEqual(orcaEndpoint({ ...env, ORCA_AGENT_HOOK_ENDPOINT: cmd }), { ...env, ORCA_AGENT_HOOK_PORT: '5000', ORCA_AGENT_HOOK_TOKEN: 'win' });
+    assert.deepEqual(orcaEndpoint({ ...env, ORCA_AGENT_HOOK_ENDPOINT: path.join(dir, 'missing') }), env);
+  });
+
+  it('sends the windows, and nothing else of the input, the way Orca expects', async () => {
+    let seen;
+    const post = async (url, init) => ((seen = { url, ...init }), { ok: true });
+    const env = { ORCA_PANE_KEY: 'tab:1', ORCA_AGENT_HOOK_PORT: '4000', ORCA_AGENT_HOOK_TOKEN: 't', ORCA_AGENT_HOOK_ENV: 'production', ORCA_AGENT_HOOK_VERSION: '1', CLAUDE_CONFIG_DIR: '/p' };
+    assert.equal(await forwardToOrca(rl, { env, post }), true);
+    assert.equal(seen.url, 'http://127.0.0.1:4000/statusline/claude');
+    assert.equal(seen.headers['X-Orca-Agent-Hook-Token'], 't');
+    const body = Object.fromEntries(new URLSearchParams(seen.body));
+    assert.deepEqual({ ...body, payload: JSON.parse(body.payload) }, { paneKey: 'tab:1', configDir: '/p', env: 'production', version: '1', payload: { rate_limits: rl } });
+  });
+
+  it('gives up quietly without a port, a token or a listening Orca', async () => {
+    const post = async () => assert.fail('must not post');
+    assert.equal(await forwardToOrca(rl, { env: { ORCA_PANE_KEY: 'p', ORCA_AGENT_HOOK_TOKEN: 't' }, post }), false);
+    assert.equal(await forwardToOrca(rl, { env: { ORCA_PANE_KEY: 'p', ORCA_AGENT_HOOK_PORT: '1' }, post }), false);
+    const refused = async () => { throw new Error('ECONNREFUSED'); };
+    assert.equal(await forwardToOrca(rl, { env: { ORCA_PANE_KEY: 'p', ORCA_AGENT_HOOK_PORT: '1', ORCA_AGENT_HOOK_TOKEN: 't' }, post: refused }), false);
+  });
+
+  it('reaches Orca from a real render without holding up the line', async () => {
+    const dir = tmp();
+    let resolve;
+    const received = new Promise(r => (resolve = r));
+    const server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', c => (body += c));
+      req.on('end', () => {
+        res.writeHead(204).end();
+        resolve({ url: req.url, token: req.headers['x-orca-agent-hook-token'], body: Object.fromEntries(new URLSearchParams(body)) });
+      });
+    });
+    await new Promise(r => server.listen(0, '127.0.0.1', r));
+    try {
+      const env = {
+        ...withoutOrca(),
+        STATUSLINE_NO_UPDATE_CHECK: '1',
+        TMPDIR: dir, TEMP: dir, TMP: dir,
+        ORCA_PANE_KEY: 'tab:e2e',
+        ORCA_AGENT_HOOK_PORT: String(server.address().port),
+        ORCA_AGENT_HOOK_TOKEN: 'secret',
+      };
+      const child = spawn(process.execPath, [script], { env });
+      let out = '';
+      child.stdout.on('data', c => (out += c));
+      child.stdin.end(fs.readFileSync(path.join(here, 'fixtures', 'input.json')));
+      await new Promise(r => child.on('close', r));
+      assert.match(plain(out), /🤖 Opus 5\.5/);
+      const got = await Promise.race([received, new Promise((_, no) => setTimeout(() => no(new Error('no post')), 5000))]);
+      assert.equal(got.url, '/statusline/claude');
+      assert.equal(got.token, 'secret');
+      assert.equal(got.body.paneKey, 'tab:e2e');
+      assert.deepEqual(JSON.parse(got.body.payload), { rate_limits: rl });
+    } finally {
+      server.close();
+    }
   });
 });

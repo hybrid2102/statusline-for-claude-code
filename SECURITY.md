@@ -14,7 +14,8 @@ permissions. That deserves a plain statement of what it touches.
   `--no-optional-locks` so it never takes the index lock, and a few `stat` calls inside
   `.git` to detect a rebase or merge in progress.
 
-It sends no telemetry. Its network requests all go to GitHub, and only for updates:
+It sends no telemetry. Apart from the local hand-off to Orca described below, its network
+requests all go to GitHub, and only for updates:
 
 - **The daily check.** At most once a day, a detached background process asks
   `api.github.com` for the latest release of this project. The request carries nothing
@@ -26,14 +27,22 @@ It sends no telemetry. Its network requests all go to GitHub, and only for updat
   sample data succeeds. The previous script is kept as `statusline.mjs.bak-<version>`.
   The changelog is then read from `raw.githubusercontent.com` to report what changed.
 
+- **Orca, on `127.0.0.1` only.** When the session runs in an [Orca](https://github.com/stablyai/orca)
+  terminal (`ORCA_PANE_KEY` is set) and the input carries usage windows, a detached process
+  posts `rate_limits` (the 5-hour and 7-day percentages and reset times) to the local port
+  Orca published, with the token Orca gave the terminal, read from the environment or from
+  the file `ORCA_AGENT_HOOK_ENDPOINT` names. Nothing else from the input is sent. It happens
+  at most every 15 seconds per pane; the time of the last post is kept in
+  `claude-statusline-orca-<hash>` in your temp folder.
+
 The checksum proves that the download is intact and is the file CI published with the
 release. It cannot protect against a compromise of the GitHub repository itself, which
 downloading the release by hand would not protect against either.
 
-Apart from the update check, the script writes nothing unless you enable **debug mode**:
-while a file named `statusline.debug` exists in your profile folder, each input is copied
-to `claude-statusline-input.json` in your temp folder. Delete `statusline.debug` to stop
-it.
+Apart from the update check and that Orca timestamp, the script writes nothing unless you
+enable **debug mode**: while a file named `statusline.debug` exists in your profile folder,
+each input is copied to `claude-statusline-input.json` in your temp folder. Delete
+`statusline.debug` to stop it.
 
 ## What the installer changes
 
