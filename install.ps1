@@ -8,13 +8,16 @@
     statusLine setting of one or more Claude Code profiles at it, so that with several
     profiles there is still only one file to update.
 
+    It runs on Windows (Windows PowerShell 5.1 or PowerShell 7) and, with PowerShell 7, on
+    macOS and Linux: install.bat and install.sh start it.
+
     Only the statusLine key of settings.json is touched; every other setting, and any
     other option inside statusLine such as padding, is preserved. A timestamped backup of
     settings.json is written before any change.
 
 .PARAMETER ConfigDir
     The Claude Code profile to configure, e.g. "$HOME\.claude-work". When omitted, every
-    profile found in the home directory is offered.
+    profile found in the home directory (.claude, .claude-work, .claude2...) is offered.
 
 .PARAMETER ScriptDir
     Where statusline.mjs is installed. Defaults to "$HOME\.claude".
@@ -143,7 +146,7 @@ if ($ConfigDir) {
 } else {
     $profiles = @(
         Get-ChildItem -Path $HOME -Directory -Force -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -eq '.claude' -or $_.Name -like '.claude-*' } |
+            Where-Object { $_.Name -like '.claude*' } |
             Sort-Object Name
     )
     if ($profiles.Count -le 1) {
@@ -288,7 +291,12 @@ foreach ($profileDir in $targets) {
             Write-Line '    already configured, left untouched' 'DarkGray'
         }
         default {
-            if ($parts[0] -eq 'replaced') { Write-Line "    replaced the previous status line ($($parts[2]))" 'Yellow' }
+            if ($parts[0] -eq 'replaced') {
+                # Orca's own status line is a shell command of a few thousand characters
+                $previous = ($parts[2..($parts.Count - 1)] -join '|')
+                if ($previous.Length -gt 100) { $previous = $previous.Substring(0, 97) + '...' }
+                Write-Line "    replaced the previous status line ($previous)" 'Yellow'
+            }
             if ($parts[1]) { Write-Line "    backup: $(Split-Path $parts[1] -Leaf)" 'DarkGray' }
             Write-Line '    configured' 'Green'
         }

@@ -124,6 +124,35 @@ jobs:
           path: ./testresults.xml
           if-no-files-found: ignore
 
+  pester-linux:
+    name: Installer tests (PowerShell 7 on Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser -SkipPublisherCheck
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          Import-Module Pester -MinimumVersion 5.5.0
+          $config = New-PesterConfiguration
+          $config.Run.Path = './tests'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $config
+
+      - name: install.sh starts the installer
+        run: |
+          STATUSLINE_NO_UPDATE_CHECK=1 sh ./install.sh -ScriptDir "$RUNNER_TEMP/s" -ConfigDir "$RUNNER_TEMP/p" -NonInteractive
+          grep -q statusline.mjs "$RUNNER_TEMP/p/settings.json"
+
   pester-windows-powershell:
     name: Installer tests (Windows PowerShell 5.1)
     runs-on: windows-latest

@@ -78,6 +78,7 @@ jobs:
             'statusline.mjs'
             'install.ps1'
             'install.bat'
+            'install.sh'
             'claude-profile.bat'
             'README.md'
             'CHANGELOG.md'
@@ -111,7 +112,7 @@ jobs:
           Expand-Archive "./dist/statusline-for-claude-code-${{ steps.version.outputs.tag }}.zip" -DestinationPath $unpacked
           $root = Join-Path $unpacked 'statusline-for-claude-code'
           $entries = @(Get-ChildItem $root)
-          if ($entries.Count -ne 8) { throw "Expected 8 files in the package, found $($entries.Count)." }
+          if ($entries.Count -ne 9) { throw "Expected 9 files in the package, found $($entries.Count)." }
 
           $scriptDir = Join-Path $env:RUNNER_TEMP 'probe-script'
           $configDir = Join-Path $env:RUNNER_TEMP 'probe-profile'
@@ -128,7 +129,7 @@ jobs:
           $tag = '${{ steps.version.outputs.tag }}'
           $notes = "See the [changelog](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for what changed in this version.`n`n" +
                    "**Windows:** unzip, then double-click ``install.bat``.`n" +
-                   "**macOS / Linux:** download ``statusline.mjs`` and follow the [manual install](https://github.com/${{ github.repository }}#macos-and-linux).`n`n" +
+                   "**macOS / Linux:** unzip, then run ``sh install.sh`` (needs PowerShell 7), or download ``statusline.mjs`` and follow the [manual install](https://github.com/${{ github.repository }}#manual-install).`n`n" +
                    "Verify your download against ``SHA256SUMS.txt``:`n`n" +
                    '```powershell' + "`n" +
                    "Get-FileHash .\statusline-for-claude-code-$tag.zip -Algorithm SHA256`n" +

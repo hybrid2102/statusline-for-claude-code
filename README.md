@@ -148,8 +148,19 @@ profile whose `settings.json` could not be updated.
 
 ### macOS and Linux
 
-The status line itself is plain Node.js and works everywhere Claude Code does; only the
-installer is Windows-specific. Install it by hand:
+With [PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell)
+(`pwsh`) installed, the same installer works: unzip the release and run
+
+```sh
+sh install.sh
+```
+
+It takes the same parameters, e.g. `sh install.sh -ConfigDir ~/.claude-work`.
+
+### Manual install
+
+The status line itself is plain Node.js and works everywhere Claude Code does; without
+PowerShell, install it by hand:
 
 ```sh
 mkdir -p ~/.claude
@@ -193,6 +204,18 @@ On Windows, `claude-profile.bat` starts Claude Code on an alternative profile: d
 it and type the name (`work` for `.claude-work`), or run `claude-profile.bat work`. It lists
 the existing profiles and asks for confirmation before a mistyped name creates a new, empty
 one.
+
+### Orca
+
+[Orca](https://github.com/stablyai/orca) reads the 5-hour and 7-day windows from the status
+line to show your usage, and installs a status line of its own that prints nothing in the
+terminal. It steps aside when you already have one, so this one takes its place without a
+conflict: inside an Orca terminal it detects the pane Orca started and passes the two
+windows on, at most every 15 seconds, from a background process that never delays the line.
+Outside Orca nothing changes. Nothing needs configuring; the line looks the same.
+
+To switch an existing install from Orca's status line to this one, run the installer again,
+or point `statusLine.command` in `settings.json` back at `statusline.mjs`.
 
 ## Requirements
 
@@ -246,9 +269,10 @@ and model rather than disappearing. Please report the message.
 The status line reads the input Claude Code sends, the `oauthAccount.emailAddress` field
 of `.claude.json`, the `advisorModel` setting and the output of `git status`. Its only network request is the daily
 check for a new release, which asks the GitHub API for the latest release of this project
-and sends nothing about you or your sessions; it can be turned off. It writes only the
-result of that check, next to the script, and a copy of its input if you enable debug
-mode. [SECURITY.md](SECURITY.md) has the details.
+and sends nothing about you or your sessions; it can be turned off. Inside
+[Orca](#orca) it also passes the two usage windows to Orca, on this computer only. It writes
+only the result of that check, next to the script, a timestamp per Orca pane in your temp
+folder, and a copy of its input if you enable debug mode. [SECURITY.md](SECURITY.md) has the details.
 
 ## Contributing
 

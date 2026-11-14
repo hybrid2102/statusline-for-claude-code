@@ -105,6 +105,17 @@ Describe 'install.ps1' {
             Get-Content -Raw -LiteralPath $backups[0].FullName | Should -Be $original
         }
 
+        It 'shortens a long previous command, such as the one Orca installs, and keeps any pipe in it' {
+            $long = 'sh -c "a | b" ' + ('x' * 300)
+            $settings = @{ statusLine = @{ type = 'command'; command = $long } } | ConvertTo-Json
+            Set-Content -LiteralPath (Join-Path $configDir 'settings.json') -Value $settings
+
+            $run = Invoke-Installer $scriptDir $configDir
+            $run.ExitCode | Should -Be 0 -Because $run.Output
+            $run.Output | Should -Match 'replaced the previous status line \(sh -c "a \| b" x+\.\.\.\)'
+            $run.Output | Should -Not -Match ('x' * 120)
+        }
+
         It 'leaves everything untouched on a second run' {
             Invoke-Installer $scriptDir $configDir | Out-Null
             $settingsFile = Join-Path $configDir 'settings.json'
