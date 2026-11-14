@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-14
+
+### Added
+
+- **The installer runs on macOS and Linux**: `sh install.sh` starts `install.ps1` with
+  PowerShell 7, with the same options and checks as on Windows. It also recognises profiles
+  named without a dash, such as `~/.claude2`, and a `settings.json` shared between profiles
+  through a link is edited in place, link included.
+- **Orca**: inside an [Orca](https://github.com/stablyai/orca) terminal the 5h and 7d
+  windows are passed on to Orca, which reads them from the status line to show usage. Orca
+  installs its own status line only when none is set, so with this one in place it used to
+  get nothing. Only `rate_limits` is sent, to `127.0.0.1`, at most every 15 seconds per pane
+  and from a background process; outside Orca nothing changes.
+
+### Fixed
+
+- The installer printed the whole previous status line command when it replaced one (a few
+  thousand characters for Orca's), and cut it at the first `|`. It is now shortened to one
+  line.
+
 ## [1.3.0] - 2026-11-13
 
 ### Added
@@ -87,7 +107,8 @@ First public release.
 - **`claude-profile.bat`** to start Claude Code on an alternative profile, with a
   confirmation before a mistyped name creates an empty one.
 
-[Unreleased]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/hybrid2102/statusline-for-claude-code/compare/v1.1.0...v1.1.1
